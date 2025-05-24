@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/PWND0U/dztool/BytesTool"
+	"github.com/PWND0U/dztool/StringTool"
 )
 
 func main() {
 	fmt.Println("create pro")
-	fmt.Println(BytesTool.NewDzString("你好世界").Find("哈哈"))
+	fmt.Println(StringTool.NewDzString("1").ToString())
 }

@@ -24,6 +24,17 @@ func (dja DzJsonArray) GetNumberArray() []float64 {
 	return numberArray
 }
 
+func (dja DzJsonArray) GetMapArray() []DzJsonMap {
+	mapArray := make([]DzJsonMap, 0)
+	for _, ja := range dja {
+		switch v := ja.(type) {
+		case map[string]interface{}:
+			mapArray = append(mapArray, v)
+		}
+	}
+	return mapArray
+}
+
 func (dja DzJsonArray) GetBoolArray() []bool {
 	boolArray := make([]bool, 0)
 	for _, ja := range dja {

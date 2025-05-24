@@ -30,13 +30,8 @@ func (djm DzJsonMap) GetMap(key string) DzJsonMap {
 	}
 }
 
-func (djm DzJsonMap) GetMapArray(key string) DzJsonMapArray {
-	switch v := djm[key].(type) {
-	case []map[string]interface{}:
-		return v
-	default:
-		return nil
-	}
+func (djm DzJsonMap) GetMapArray(key string) []DzJsonMap {
+	return djm.GetArray(key).GetMapArray()
 }
 
 func (djm DzJsonMap) GetArray(key string) DzJsonArray {
@@ -63,5 +58,14 @@ func (djm DzJsonMap) GetNumber(key string) float64 {
 		return v
 	default:
 		return 0
+	}
+}
+
+func (djm DzJsonMap) GetString(key string) string {
+	switch v := djm[key].(type) {
+	case string:
+		return v
+	default:
+		return ""
 	}
 }

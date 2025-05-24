@@ -65,7 +65,11 @@ func (ds DzString) Spilt(sepStr string) DzStrings {
 func (ds DzString) SpiltN(sepStr string, count int) DzStrings {
 	// 返回分割后的字符串列表
 	return NewDzStrings(strings.SplitN(string(ds), sepStr, count))
+}
 
+func (ds DzString) IsEmpty() bool {
+	// 返回分割后的字符串列表
+	return ds == "" || len(ds) <= 0
 }
 
 func (ds DzString) Strip(cutset string) DzString {

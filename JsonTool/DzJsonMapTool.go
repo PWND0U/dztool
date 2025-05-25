@@ -3,7 +3,6 @@ package JsonTool
 import (
 	"encoding/json"
 	"github.com/PWND0U/dztool/StringTool"
-	"log"
 	"maps"
 	"slices"
 )
@@ -14,7 +13,7 @@ func NewDzJsonMap(jsonData []byte) DzJsonMap {
 	djm := make(DzJsonMap)
 	err := json.Unmarshal(jsonData, &djm)
 	if err != nil {
-		log.Fatal(err)
+		//log.Fatal(err)
 		return nil
 	}
 	return djm
@@ -25,6 +24,9 @@ func ParseDzJsonMap(jsonData map[string]interface{}) DzJsonMap {
 }
 
 func (djm DzJsonMap) getMap(key string) DzJsonMap {
+	if djm == nil {
+		return nil
+	}
 	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
 		switch v := djm[key].(type) {
 		case map[string]interface{}:
@@ -55,6 +57,9 @@ func (djm DzJsonMap) GetMapArray(key string) []DzJsonMap {
 }
 
 func (djm DzJsonMap) getArray(key string) DzJsonArray {
+	if djm == nil {
+		return make(DzJsonArray, 0)
+	}
 	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
 		switch v := djm[key].(type) {
 		case []interface{}:
@@ -80,6 +85,9 @@ func (djm DzJsonMap) GetArray(key string) DzJsonArray {
 	return make(DzJsonArray, 0)
 }
 func (djm DzJsonMap) getBool(key string) bool {
+	if djm == nil {
+		return false
+	}
 	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
 		switch v := djm[key].(type) {
 		case bool:
@@ -105,6 +113,9 @@ func (djm DzJsonMap) GetBool(key string) bool {
 }
 
 func (djm DzJsonMap) getNumber(key string) float64 {
+	if djm == nil {
+		return 0
+	}
 	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
 		switch v := djm[key].(type) {
 		case float64:
@@ -131,6 +142,9 @@ func (djm DzJsonMap) GetNumber(key string) float64 {
 }
 
 func (djm DzJsonMap) getString(key string) string {
+	if djm == nil {
+		return "make(DzJsonArray, 0)"
+	}
 	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
 		switch v := djm[key].(type) {
 		case string:

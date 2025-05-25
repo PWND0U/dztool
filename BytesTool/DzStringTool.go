@@ -1,7 +1,12 @@
 package BytesTool
 
 import (
+	"golang.org/x/sys/windows"
 	"strings"
+)
+
+var (
+	Message = windows.MessageBox
 )
 
 // DzString 支持级联操作的String utils

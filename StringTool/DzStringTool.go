@@ -1,6 +1,9 @@
 package StringTool
 
 import (
+	"github.com/PWND0U/dztool/Algorithm"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"strings"
 )
 
@@ -90,4 +93,14 @@ func (ds DzString) RStrip(cutset string) DzString {
 func (ds DzString) IsContains(subStr string) bool {
 	// 将DzString类型转换为string类型
 	return strings.Contains(string(ds), subStr)
+}
+
+func (ds DzString) Title() DzString {
+	// 将DzString类型转换为string类型
+	return NewDzString(cases.Title(language.Und).String(ds.ToString()))
+}
+
+func (ds DzString) SimilarText(str string) float64 {
+	// 计算字符串相似度
+	return 1 - float64(Algorithm.Levenshtein(ds.ToString(), str, 1, 1, 1))/float64(len([]rune(ds.ToString())))
 }

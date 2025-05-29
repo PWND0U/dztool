@@ -2,6 +2,7 @@ package StringTool
 
 import (
 	"github.com/PWND0U/dztool/Algorithm"
+	"github.com/spf13/cast"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"strings"
@@ -26,6 +27,10 @@ func Join(strList []string, seqStr string) DzString {
 func (ds DzString) ToString() string {
 	// 将DzString类型转换为string类型
 	return string(ds)
+}
+func (ds DzString) ToBytes() []byte {
+	// 将DzString类型转换为string类型
+	return []byte(ds)
 }
 
 // ReplaceAll 用于将DzString类型的ds中的所有old字符串替换为new字符串，并返回一个新的DzString类型
@@ -103,4 +108,9 @@ func (ds DzString) Title() DzString {
 func (ds DzString) SimilarText(str string) float64 {
 	// 计算字符串相似度
 	return 1 - float64(Algorithm.DzLevenshtein(ds.ToString(), str, 1, 1, 1))/float64(len([]rune(ds.ToString())))
+}
+
+func (ds DzString) ToInt() int {
+	// 计算字符串相似度
+	return cast.ToInt(ds.ToString())
 }

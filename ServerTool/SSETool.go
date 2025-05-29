@@ -62,8 +62,44 @@ func (dSse *DzServerSentEvent) Encode() []byte {
 }
 
 func DecodeDzServerSentEvent(b []byte) *DzServerSentEvent {
-
-	return nil
+	dSse := &DzServerSentEvent{
+		DefaultSeparator: "\r\n",
+	}
+	data := bytes.NewBuffer(nil)
+	for _, s := range lineSepExpr.Split(string(b), -1) {
+		if len(s) == 0 {
+			continue
+		}
+		if s[0] == ':' {
+			if dSse.Comment.IsEmpty() {
+				dSse.Comment = StringTool.NewDzString(s[1:]).LStrip(" ")
+			} else {
+				dSse.Comment = StringTool.NewDzString(fmt.Sprintf("%s%s%s", dSse.Comment, dSse.DefaultSeparator, StringTool.NewDzString(s[1:]).LStrip(" ").ToString()))
+			}
+			continue
+		}
+		if s[:4] == "data" {
+			if dSse.Data == nil {
+				dSse.Data = StringTool.NewDzString(s[5:]).LStrip(" ").ToBytes()
+			} else {
+				data.WriteString(fmt.Sprintf("%s%s", StringTool.NewDzString(s[5:]).LStrip(" ").ToString(), dSse.DefaultSeparator))
+			}
+			continue
+		}
+		if s[:5] == "event" {
+			dSse.Event = StringTool.NewDzString(s[6:]).LStrip(" ")
+			continue
+		}
+		if s[:2] == "id" {
+			dSse.Id = StringTool.NewDzString(s[3:]).LStrip(" ")
+			continue
+		}
+		if s[:6] == "retry" {
+			dSse.Retry = StringTool.NewDzString(s[7:]).LStrip(" ").ToInt()
+			continue
+		}
+	}
+	return dSse
 }
 
 func (dSse *DzServerSentEvent) SSEDataFlush(resp http.ResponseWriter) bool {

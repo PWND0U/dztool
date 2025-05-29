@@ -102,5 +102,5 @@ func (ds DzString) Title() DzString {
 
 func (ds DzString) SimilarText(str string) float64 {
 	// 计算字符串相似度
-	return 1 - float64(Algorithm.Levenshtein(ds.ToString(), str, 1, 1, 1))/float64(len([]rune(ds.ToString())))
+	return 1 - float64(Algorithm.DzLevenshtein(ds.ToString(), str, 1, 1, 1))/float64(len([]rune(ds.ToString())))
 }

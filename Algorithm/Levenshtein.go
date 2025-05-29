@@ -1,6 +1,6 @@
 package Algorithm
 
-func Levenshtein(str1, str2 string, weightInsert, weightReplace, weightDelete int) int {
+func DzLevenshtein(str1, str2 string, weightInsert, weightReplace, weightDelete int) int {
 	tempStr1 := []rune(str1)
 	tempStr2 := []rune(str2)
 	str1Len := len(tempStr1)

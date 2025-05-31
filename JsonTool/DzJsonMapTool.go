@@ -3,6 +3,7 @@ package JsonTool
 import (
 	"encoding/json"
 	"github.com/PWND0U/dztool/StringTool"
+	"github.com/spf13/cast"
 	"maps"
 	"slices"
 )
@@ -112,31 +113,44 @@ func (djm DzJsonMap) GetBool(key string) bool {
 	return false
 }
 
-func (djm DzJsonMap) getNumber(key string) float64 {
+func (djm DzJsonMap) getFloat(key string) float64 {
 	if djm == nil {
 		return 0
 	}
-	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
-		switch v := djm[key].(type) {
-		case float64:
-			return v
-		default:
-			return 0
-		}
-	}
-	return 0
+	return cast.ToFloat64(djm[key])
 }
 
-func (djm DzJsonMap) GetNumber(key string) float64 {
+func (djm DzJsonMap) GetFloat(key string) float64 {
 	dzString := StringTool.NewDzString(key)
 	if dzString.IsContains(".") {
 		dzStrings := StringTool.NewDzString(key).Spilt(".")
 		getMap := djm.GetMap(dzStrings[0 : len(dzStrings)-1].Join(".").ToString())
 		if getMap != nil {
-			return getMap.getNumber(dzStrings[len(dzStrings)-1].ToString())
+			return getMap.getFloat(dzStrings[len(dzStrings)-1].ToString())
 		}
 	} else {
-		return djm.getNumber(key)
+		return djm.getFloat(key)
+	}
+	return 0
+}
+
+func (djm DzJsonMap) getInt(key string) int {
+	if djm == nil {
+		return 0
+	}
+	return cast.ToInt(djm[key])
+}
+
+func (djm DzJsonMap) GetInt(key string) int {
+	dzString := StringTool.NewDzString(key)
+	if dzString.IsContains(".") {
+		dzStrings := StringTool.NewDzString(key).Spilt(".")
+		getMap := djm.GetMap(dzStrings[0 : len(dzStrings)-1].Join(".").ToString())
+		if getMap != nil {
+			return getMap.getInt(dzStrings[len(dzStrings)-1].ToString())
+		}
+	} else {
+		return djm.getInt(key)
 	}
 	return 0
 }

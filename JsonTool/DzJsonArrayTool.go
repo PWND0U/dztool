@@ -7,10 +7,11 @@ type DzJsonArray []interface{}
 func (dja DzJsonArray) GetStringArray() []string {
 	strArray := make([]string, 0)
 	for _, ja := range dja {
-		switch v := ja.(type) {
-		case string:
-			strArray = append(strArray, v)
-		}
+		strArray = append(strArray, cast.ToString(ja))
+		//switch v := ja.(type) {
+		//case string:
+		//	strArray = append(strArray, v)
+		//}
 	}
 	return strArray
 }
@@ -53,10 +54,11 @@ func (dja DzJsonArray) GetMapArray() []DzJsonMap {
 func (dja DzJsonArray) GetBoolArray() []bool {
 	boolArray := make([]bool, 0)
 	for _, ja := range dja {
-		switch v := ja.(type) {
-		case bool:
-			boolArray = append(boolArray, v)
-		}
+		boolArray = append(boolArray, cast.ToBool(ja))
+		//switch v := ja.(type) {
+		//case bool:
+		//	boolArray = append(boolArray, v)
+		//}
 	}
 	return boolArray
 }

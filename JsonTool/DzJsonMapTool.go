@@ -40,7 +40,7 @@ func (djm DzJsonMap) getMap(key string) DzJsonMap {
 }
 
 func (djm DzJsonMap) GetMap(key string) DzJsonMap {
-	dzStrings := StringTool.NewDzString(key).Spilt(".")
+	dzStrings := StringTool.NewDzString(key).Split(".")
 	tempDjm := djm
 	for _, dzString := range dzStrings {
 		if !dzString.IsEmpty() {
@@ -75,7 +75,7 @@ func (djm DzJsonMap) getArray(key string) DzJsonArray {
 func (djm DzJsonMap) GetArray(key string) DzJsonArray {
 	dzString := StringTool.NewDzString(key)
 	if dzString.IsContains(".") {
-		dzStrings := dzString.Spilt(".")
+		dzStrings := dzString.Split(".")
 		getMap := djm.GetMap(dzStrings[0 : len(dzStrings)-1].Join(".").ToString())
 		if getMap != nil {
 			return getMap.getArray(dzStrings[len(dzStrings)-1].ToString())
@@ -90,19 +90,14 @@ func (djm DzJsonMap) getBool(key string) bool {
 		return false
 	}
 	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
-		switch v := djm[key].(type) {
-		case bool:
-			return v
-		default:
-			return false
-		}
+		return cast.ToBool(djm[key])
 	}
 	return false
 }
 func (djm DzJsonMap) GetBool(key string) bool {
 	dzString := StringTool.NewDzString(key)
 	if dzString.IsContains(".") {
-		dzStrings := StringTool.NewDzString(key).Spilt(".")
+		dzStrings := StringTool.NewDzString(key).Split(".")
 		getMap := djm.GetMap(dzStrings[0 : len(dzStrings)-1].Join(".").ToString())
 		if getMap != nil {
 			return getMap.getBool(dzStrings[len(dzStrings)-1].ToString())
@@ -117,13 +112,16 @@ func (djm DzJsonMap) getFloat(key string) float64 {
 	if djm == nil {
 		return 0
 	}
-	return cast.ToFloat64(djm[key])
+	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
+		return cast.ToFloat64(djm[key])
+	}
+	return 0
 }
 
 func (djm DzJsonMap) GetFloat(key string) float64 {
 	dzString := StringTool.NewDzString(key)
 	if dzString.IsContains(".") {
-		dzStrings := StringTool.NewDzString(key).Spilt(".")
+		dzStrings := StringTool.NewDzString(key).Split(".")
 		getMap := djm.GetMap(dzStrings[0 : len(dzStrings)-1].Join(".").ToString())
 		if getMap != nil {
 			return getMap.getFloat(dzStrings[len(dzStrings)-1].ToString())
@@ -138,13 +136,16 @@ func (djm DzJsonMap) getInt(key string) int {
 	if djm == nil {
 		return 0
 	}
-	return cast.ToInt(djm[key])
+	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
+		return cast.ToInt(djm[key])
+	}
+	return 0
 }
 
 func (djm DzJsonMap) GetInt(key string) int {
 	dzString := StringTool.NewDzString(key)
 	if dzString.IsContains(".") {
-		dzStrings := StringTool.NewDzString(key).Spilt(".")
+		dzStrings := StringTool.NewDzString(key).Split(".")
 		getMap := djm.GetMap(dzStrings[0 : len(dzStrings)-1].Join(".").ToString())
 		if getMap != nil {
 			return getMap.getInt(dzStrings[len(dzStrings)-1].ToString())
@@ -157,15 +158,10 @@ func (djm DzJsonMap) GetInt(key string) int {
 
 func (djm DzJsonMap) getString(key string) string {
 	if djm == nil {
-		return "make(DzJsonArray, 0)"
+		return ""
 	}
 	if slices.Contains(slices.Collect(maps.Keys(djm)), key) {
-		switch v := djm[key].(type) {
-		case string:
-			return v
-		default:
-			return ""
-		}
+		return cast.ToString(djm[key])
 	}
 	return ""
 }
@@ -173,7 +169,7 @@ func (djm DzJsonMap) getString(key string) string {
 func (djm DzJsonMap) GetString(key string) string {
 	dzString := StringTool.NewDzString(key)
 	if dzString.IsContains(".") {
-		dzStrings := StringTool.NewDzString(key).Spilt(".")
+		dzStrings := StringTool.NewDzString(key).Split(".")
 		getMap := djm.GetMap(dzStrings[0 : len(dzStrings)-1].Join(".").ToString())
 		if getMap != nil {
 			return getMap.getString(dzStrings[len(dzStrings)-1].ToString())

@@ -65,7 +65,7 @@ func NewDzPaddleOcrEngine(config Config) (*DzPaddleOcrEngine, error) {
 		config.HeatmapThreshold = 0.3
 	}
 	if config.DetOutsideExpandPix == 0 {
-		config.DetOutsideExpandPix = 10
+		config.DetOutsideExpandPix = 20
 	}
 
 	// 加载字典
@@ -186,51 +186,66 @@ func (e *DzPaddleOcrEngine) RunDetect(img image.Image) ([][4]int, error) {
 func (e *DzPaddleOcrEngine) RunRecognize(img image.Image, box [4]int) (RecResult, error) {
 	resultText := ""
 	resultScore := float32(0.0)
-
-	// 裁切
-	crop, err := imageutil.Crop(img, image.Rectangle{
+	rect := image.Rectangle{
 		Min: image.Point{X: box[0], Y: box[1]},
 		Max: image.Point{X: box[2], Y: box[3]},
-	})
+	}
+	// 裁切
+	crop, err := imageutil.Crop(img, rect)
+	//imageutil.Save(fmt.Sprintf("crop_%d_%d.jpg", box[0], box[1]), crop, 100)
 	if err != nil {
 		return RecResult{}, fmt.Errorf("裁切框失败: %w", err)
 	}
+	// 保留原始图像,避免旋转后丢失原始图像
+	srcDict := image.Rect(0, 0, rect.Dx(), rect.Dy())
+	srcImage := image.NewNRGBA(srcDict)
+	draw.Draw(srcImage, srcDict, img, rect.Min, draw.Src)
+	for i := 0; i < 4; i++ {
+		// 预处理
+		recInputData, recInputShape := e.preprocessRecImage(crop)
+		recInputTensor, err := ort.NewTensor(recInputShape, recInputData)
+		if err != nil {
+			return RecResult{}, fmt.Errorf("创建 rec input tensor 失败: %w", err)
+		}
+		defer recInputTensor.Destroy()
 
-	// 预处理
-	recInputData, recInputShape := e.preprocessRecImage(crop)
-	recInputTensor, err := ort.NewTensor(recInputShape, recInputData)
-	if err != nil {
-		return RecResult{}, fmt.Errorf("创建 rec input tensor 失败: %w", err)
+		// 准备动态识别输出
+		// SeqLen = W_in / 8
+		inputWidth := recInputShape[3]
+		recModelSeqLen := inputWidth / 8
+		if recModelSeqLen == 0 {
+			recModelSeqLen = 1
+		}
+
+		recOutputShape := []int64{1, recModelSeqLen, e.recModelNumClasses}
+		recOutputData := make([]float32, 1*recModelSeqLen*e.recModelNumClasses)
+		recOutputTensor, err := ort.NewTensor(recOutputShape, recOutputData)
+		if err != nil {
+			return RecResult{}, fmt.Errorf("创建 rec output tensor 失败: %w", err)
+		}
+		defer recOutputTensor.Destroy()
+
+		// 模型推理
+		e.recMutex.Lock()
+		runErr := e.recSession.Run([]ort.Value{recInputTensor}, []ort.Value{recOutputTensor})
+		e.recMutex.Unlock()
+
+		if runErr != nil {
+			return RecResult{}, fmt.Errorf("运行 rec session 失败: %w", runErr)
+		}
+
+		// 后处理 (CTC 解码)
+		resultText, resultScore = e.postprocessRecOutput(recOutputData, recOutputShape)
+		if resultText != "" && resultScore > 0.6 {
+			break
+		} else {
+			// 旋转90度
+			crop, err = imageutil.Rotate(srcImage, imageutil.RotateAngle90*(i+1))
+			if err != nil {
+				return RecResult{}, fmt.Errorf("旋转图像失败: %w", err)
+			}
+		}
 	}
-	defer recInputTensor.Destroy()
-
-	// 准备动态识别输出
-	// SeqLen = W_in / 8
-	inputWidth := recInputShape[3]
-	recModelSeqLen := inputWidth / 8
-	if recModelSeqLen == 0 {
-		recModelSeqLen = 1
-	}
-
-	recOutputShape := []int64{1, recModelSeqLen, e.recModelNumClasses}
-	recOutputData := make([]float32, 1*recModelSeqLen*e.recModelNumClasses)
-	recOutputTensor, err := ort.NewTensor(recOutputShape, recOutputData)
-	if err != nil {
-		return RecResult{}, fmt.Errorf("创建 rec output tensor 失败: %w", err)
-	}
-	defer recOutputTensor.Destroy()
-
-	// 模型推理
-	e.recMutex.Lock()
-	runErr := e.recSession.Run([]ort.Value{recInputTensor}, []ort.Value{recOutputTensor})
-	e.recMutex.Unlock()
-
-	if runErr != nil {
-		return RecResult{}, fmt.Errorf("运行 rec session 失败: %w", runErr)
-	}
-
-	// 后处理 (CTC 解码)
-	resultText, resultScore = e.postprocessRecOutput(recOutputData, recOutputShape)
 
 	return RecResult{Box: box, Text: resultText, Score: resultScore}, nil
 }

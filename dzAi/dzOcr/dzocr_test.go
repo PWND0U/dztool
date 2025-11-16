@@ -13,7 +13,7 @@ func TestDzOcr(t *testing.T) {
 		OnnxRuntimeLibPath:    "./dist/cpuLib/onnxruntime.dll",
 		GPUOnnxRuntimeLibPath: "./dist/gpuLib/onnxruntime.dll",
 		DetModelPath:          "./dist/model/det.onnx",
-		RecModelPath:          "./dist/model/rec.onnx",
+		RecModelPath:          "./dist/model/recV5.onnx",
 		DictPath:              "./dist/model/dict.txt",
 		UseCuda:               true,
 	}
@@ -27,7 +27,7 @@ func TestDzOcr(t *testing.T) {
 	defer engine.Destroy()
 
 	// 打开图像
-	imagePath := "./dist/test2.jpg"
+	imagePath := "./dist/test4.jpg"
 	img, err := imageutil.Open(imagePath)
 	if err != nil {
 		log.Fatalf("加载图像失败: %v\n", err)

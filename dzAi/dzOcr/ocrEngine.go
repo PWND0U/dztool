@@ -50,6 +50,9 @@ type Engine interface {
 	// RunOCR 对图像执行检测和识别
 	RunOCR(img image.Image) ([]RecResult, error)
 
+	// RunOCRByFile 对图像文件执行检测和识别
+	RunOCRByFile(imgFile string) ([]RecResult, error)
+
 	// Destroy 释放所有引擎相关的资源
 	Destroy()
 }

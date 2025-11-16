@@ -1,6 +1,7 @@
 package dzOcr
 
 import (
+	"fmt"
 	"log"
 	"testing"
 
@@ -27,7 +28,7 @@ func TestDzOcr(t *testing.T) {
 	defer engine.Destroy()
 
 	// 打开图像
-	imagePath := "./dist/test4.jpg"
+	imagePath := "./dist/test.jpg"
 	img, err := imageutil.Open(imagePath)
 	if err != nil {
 		log.Fatalf("加载图像失败: %v\n", err)
@@ -38,13 +39,45 @@ func TestDzOcr(t *testing.T) {
 	if err != nil {
 		log.Fatalf("运行 OCR 失败: %v\n", err)
 	}
-	boxes := make([][4]int, 0)
+	//boxes := make([][4]int, 0)
 	for _, result := range results {
 		log.Printf("识别结果: %v\n", result)
-		boxes = append(boxes, result.Box)
+		//boxes = append(boxes, result.Box)
 	}
 	// 绘制识别区域
-	drawImg := DrawBoxes(img, boxes, nil)
-	// 保存绘制后的图像
-	imageutil.Save("./dist/test_box.jpg", drawImg, 100)
+	//drawImg := DrawBoxes(img, boxes, nil)
+	//// 保存绘制后的图像
+	//imageutil.Save("./dist/test_box.jpg", drawImg, 100)
+	fmt.Println("-----------------")
+	results, err = engine.RunOCRByFile("./dist/test2.jpg")
+	if err != nil {
+		log.Fatalf("运行 OCR 失败: %v\n", err)
+	}
+	for _, result := range results {
+		log.Printf("识别结果: %v\n", result)
+	}
+	fmt.Println("-----------------")
+	results, err = engine.RunOCRByFile("./dist/test3.jpg")
+	if err != nil {
+		log.Fatalf("运行 OCR 失败: %v\n", err)
+	}
+	for _, result := range results {
+		log.Printf("识别结果: %v\n", result)
+	}
+	fmt.Println("-----------------")
+	results, err = engine.RunOCRByFile("./dist/test4.jpg")
+	if err != nil {
+		log.Fatalf("运行 OCR 失败: %v\n", err)
+	}
+	for _, result := range results {
+		log.Printf("识别结果: %v\n", result)
+	}
+	fmt.Println("-----------------")
+	results, err = engine.RunOCRByFile("./dist/test5.jpg")
+	if err != nil {
+		log.Fatalf("运行 OCR 失败: %v\n", err)
+	}
+	for _, result := range results {
+		log.Printf("识别结果: %v\n", result)
+	}
 }

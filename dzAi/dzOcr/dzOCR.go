@@ -293,6 +293,53 @@ func (e *DzPaddleOcrEngine) RunOCR(img image.Image) ([]RecResult, error) {
 	return results, nil
 }
 
+// RunOCRByFile 对图像文件执行检测和识别
+// 核心优化：并发执行识别
+func (e *DzPaddleOcrEngine) RunOCRByFile(imgFile string) ([]RecResult, error) {
+	img, err := imageutil.Open(imgFile)
+	if err != nil {
+		return nil, fmt.Errorf("加载图像失败: %w", err)
+	}
+	// 文字区域检测
+	finalBoxes, err := e.RunDetect(img)
+	if err != nil {
+		return nil, err
+	}
+
+	// 文字识别
+	var wg sync.WaitGroup
+	wg.Add(len(finalBoxes))
+	results := make([]RecResult, len(finalBoxes))
+
+	var errs []error
+	handlerError := func(err error) {
+		e.recMutex.Lock()
+		errs = append(errs, err)
+		e.recMutex.Unlock()
+	}
+
+	for i, box := range finalBoxes {
+		// 为每个 box 启动一个 goroutine
+		go func(i int, box [4]int) {
+			defer wg.Done()
+			result, err := e.RunRecognize(img, box)
+			if err != nil {
+				handlerError(fmt.Errorf("识别框 (box: %v) 错误: %w", box, err))
+				return
+			}
+			results[i] = result
+		}(i, box)
+	}
+
+	wg.Wait()
+
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("识别错误: %v", errs)
+	}
+
+	return results, nil
+}
+
 // Destroy 释放所有 C++ ONNX 资源
 func (e *DzPaddleOcrEngine) Destroy() {
 	if e.detSession != nil {

@@ -1,12 +1,13 @@
 package StringTool
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/PWND0U/dztool/Algorithm"
 	"github.com/spf13/cast"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
-	"regexp"
-	"strings"
 )
 
 // DzString 定义一个字符串类型，支持级联操作，用于处理字符串相关的操作（如拼接、分割、替换等）
@@ -174,4 +175,16 @@ func (ds DzString) SimilarText(str string) float64 {
 func (ds DzString) ToInt() int {
 	// 调用 cast.ToInt 执行字符串转整数
 	return cast.ToInt(ds.ToString())
+}
+
+// FStringFormat 格式化当前字符串，替换其中的占位符为指定值
+// 参数 values: 包含占位符和对应值的映射（如 {"name": "Alice"}）
+// 返回值: 格式化后的新 DzString 对象
+func (ds DzString) FStringFormat(values map[string]any) DzString {
+	// 调用 cast.ToInt 执行字符串转整数
+	result := ds
+	for k, v := range values {
+		result = result.ReplaceAll("{"+k+"}", cast.ToString(v))
+	}
+	return result
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/up-zero/gotool/imageutil"
+	ort "github.com/yalue/onnxruntime_go"
 
 	"golang.org/x/image/draw"
 )
@@ -31,6 +32,9 @@ type Config struct {
 
 	// 可选参数
 	UseCuda             bool    // (可选) 是否启用 CUDA
+	GPUDeviceID         int     // (可选) CUDA 设备ID, 默认 0
+	UseDirectML         bool    // (可选) 是否启用 DirectML
+	UseTensorrt         bool    // (可选) 是否启用 TensorRT
 	NumThreads          int     // (可选) ONNX 线程数, 默认由CPU核心数决定
 	DetMaxSideLen       int     // (可选) 检测模型预处理的最长边, 默认 960
 	DetOutsideExpandPix int     // (可选) 检测框外扩像素, 默认 10
@@ -45,7 +49,7 @@ type Engine interface {
 	RunDetect(img image.Image) ([][4]int, error)
 
 	// RunRecognize 识别图像中指定区域的文字
-	RunRecognize(img image.Image, box [4]int) (RecResult, error)
+	RunRecognize(img image.Image, box [4]int, session *ort.DynamicAdvancedSession) (RecResult, error)
 
 	// RunOCR 对图像执行检测和识别
 	RunOCR(img image.Image) ([]RecResult, error)

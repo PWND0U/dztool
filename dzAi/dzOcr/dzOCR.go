@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,16 +19,19 @@ var _ Engine = (*DzPaddleOcrEngine)(nil)
 
 // DzPaddleOcrEngine 是 PaddleOCR 引擎的主结构体
 type DzPaddleOcrEngine struct {
-	detSession *ort.DynamicAdvancedSession // 检测
-	recSession *ort.DynamicAdvancedSession // 识别
-	recMutex   sync.Mutex                  // 保护 recSession (非并发安全)
-
-	dict                []string // 字典
-	detMaxSideLen       int      // 检测模型最长边
-	detOutsideExpandPix int      // 检测框外扩像素
-	recHeight           int      // 识别模型高度
-	recModelNumClasses  int64    // 识别模型类别数
-	heatmapThreshold    float32  // 热力图阈值
+	detSession          *ort.DynamicAdvancedSession // 检测
+	recSession          *ort.DynamicAdvancedSession // 识别
+	recMutex            sync.Mutex                  // 保护 recSession (非并发安全)
+	detMutex            sync.Mutex                  // 保护 detSession (非并发安全)
+	dict                []string                    // 字典
+	detMaxSideLen       int                         // 检测模型最长边
+	detOutsideExpandPix int                         // 检测框外扩像素
+	recHeight           int                         // 识别模型高度
+	recModelNumClasses  int64                       // 识别模型类别数
+	heatmapThreshold    float32                     // 热力图阈值
+	//recPath             string                      // 识别模型路径
+	//detPath             string                      // 检测模型路径
+	//options             *ort.SessionOptions         // 会话选项
 }
 
 // NewDzPaddleOcrEngine 用于初始化 ONNX Runtime、加载模型和字典。
@@ -65,7 +69,7 @@ func NewDzPaddleOcrEngine(config Config) (*DzPaddleOcrEngine, error) {
 		config.HeatmapThreshold = 0.3
 	}
 	if config.DetOutsideExpandPix == 0 {
-		config.DetOutsideExpandPix = 20
+		config.DetOutsideExpandPix = 10
 	}
 
 	// 加载字典
@@ -76,6 +80,11 @@ func NewDzPaddleOcrEngine(config Config) (*DzPaddleOcrEngine, error) {
 
 	// 创建会话选项 (设置线程)
 	options, err := ort.NewSessionOptions()
+
+	if err != nil {
+		return nil, err
+	}
+	err = options.SetGraphOptimizationLevel(ort.GraphOptimizationLevelEnableAll)
 	if err != nil {
 		return nil, err
 	}
@@ -83,8 +92,11 @@ func NewDzPaddleOcrEngine(config Config) (*DzPaddleOcrEngine, error) {
 		if err := options.SetIntraOpNumThreads(config.NumThreads); err != nil {
 			return nil, err
 		}
+		if err := options.SetInterOpNumThreads(config.NumThreads); err != nil {
+			return nil, err
+		}
 	}
-
+	//options.SetExecutionMode(ort.ExecutionModeParallel)
 	// 启用CUDA
 	if config.UseCuda {
 		cudaOptions, err := ort.NewCUDAProviderOptions()
@@ -92,12 +104,42 @@ func NewDzPaddleOcrEngine(config Config) (*DzPaddleOcrEngine, error) {
 			return nil, fmt.Errorf("创建 CUDAProviderOptions 失败: %w", err)
 		}
 		defer cudaOptions.Destroy()
+		err = cudaOptions.Update(map[string]string{
+			"device_id": strconv.Itoa(config.GPUDeviceID),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("更新 CUDAProviderOptions 失败: %w", err)
+		}
 		if err := options.AppendExecutionProviderCUDA(cudaOptions); err != nil {
 			return nil, fmt.Errorf("添加 CUDA 执行提供者失败: %w", err)
 		}
 	}
 
-	// 创建检测会话
+	// 启用DirectML
+	if config.UseDirectML {
+		if err := options.AppendExecutionProviderDirectML(0); err != nil {
+			return nil, fmt.Errorf("添加 DirectML 执行提供者失败: %w", err)
+		}
+	}
+	// 启用TensorRT
+	if config.UseTensorrt {
+		tensorrtOptions, err := ort.NewTensorRTProviderOptions()
+		if err != nil {
+			return nil, fmt.Errorf("创建 TensorRTProviderOptions 失败: %w", err)
+		}
+		defer tensorrtOptions.Destroy()
+		err = tensorrtOptions.Update(map[string]string{
+			"device_id": strconv.Itoa(config.GPUDeviceID),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("更新 CUDAProviderOptions 失败: %w", err)
+		}
+		if err := options.AppendExecutionProviderTensorRT(tensorrtOptions); err != nil {
+			return nil, fmt.Errorf("添加 TensorRT 执行提供者失败: %w", err)
+		}
+	}
+
+	//创建检测会话
 	detSession, err := ort.NewDynamicAdvancedSession(
 		config.DetModelPath,
 		[]string{"x"},            // 输入节点名
@@ -108,7 +150,7 @@ func NewDzPaddleOcrEngine(config Config) (*DzPaddleOcrEngine, error) {
 		return nil, fmt.Errorf("创建 det session 失败: %w", err)
 	}
 
-	// 创建识别会话
+	//创建识别会话
 	recSession, err := ort.NewDynamicAdvancedSession(
 		config.RecModelPath,
 		[]string{"x"},            // 输入节点名
@@ -129,6 +171,9 @@ func NewDzPaddleOcrEngine(config Config) (*DzPaddleOcrEngine, error) {
 		recHeight:           config.RecHeight,
 		recModelNumClasses:  config.RecModelNumClasses,
 		heatmapThreshold:    config.HeatmapThreshold,
+		//recPath:             config.RecModelPath,
+		//detPath:             config.DetModelPath,
+		//options:             options,
 	}
 
 	return engine, nil
@@ -157,9 +202,21 @@ func (e *DzPaddleOcrEngine) RunDetect(img image.Image) ([][4]int, error) {
 		return nil, fmt.Errorf("创建 det output tensor 失败: %w", err)
 	}
 	defer detOutputTensor.Destroy()
-
+	// 创建检测会话
+	//detSession, err := ort.NewDynamicAdvancedSession(
+	//	e.detPath,
+	//	[]string{"x"},            // 输入节点名
+	//	[]string{"fetch_name_0"}, // 输出节点名
+	//	e.options,
+	//)
+	//if err != nil {
+	//	return nil, fmt.Errorf("创建 det session 失败: %w", err)
+	//}
+	//defer detSession.Destroy()
 	// 运行检测模型
+	e.detMutex.Lock()
 	err = e.detSession.Run([]ort.Value{detInputTensor}, []ort.Value{detOutputTensor})
+	e.detMutex.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("运行 det session 失败: %w", err)
 	}
@@ -183,7 +240,7 @@ func (e *DzPaddleOcrEngine) RunDetect(img image.Image) ([][4]int, error) {
 }
 
 // RunRecognize 识别图像中指定区域的文字
-func (e *DzPaddleOcrEngine) RunRecognize(img image.Image, box [4]int) (RecResult, error) {
+func (e *DzPaddleOcrEngine) RunRecognize(img image.Image, box [4]int, session *ort.DynamicAdvancedSession) (RecResult, error) {
 	resultText := ""
 	resultScore := float32(0.0)
 	rect := image.Rectangle{
@@ -207,7 +264,6 @@ func (e *DzPaddleOcrEngine) RunRecognize(img image.Image, box [4]int) (RecResult
 		if err != nil {
 			return RecResult{}, fmt.Errorf("创建 rec input tensor 失败: %w", err)
 		}
-		defer recInputTensor.Destroy()
 
 		// 准备动态识别输出
 		// SeqLen = W_in / 8
@@ -223,11 +279,10 @@ func (e *DzPaddleOcrEngine) RunRecognize(img image.Image, box [4]int) (RecResult
 		if err != nil {
 			return RecResult{}, fmt.Errorf("创建 rec output tensor 失败: %w", err)
 		}
-		defer recOutputTensor.Destroy()
 
 		// 模型推理
 		e.recMutex.Lock()
-		runErr := e.recSession.Run([]ort.Value{recInputTensor}, []ort.Value{recOutputTensor})
+		runErr := session.Run([]ort.Value{recInputTensor}, []ort.Value{recOutputTensor})
 		e.recMutex.Unlock()
 
 		if runErr != nil {
@@ -236,7 +291,15 @@ func (e *DzPaddleOcrEngine) RunRecognize(img image.Image, box [4]int) (RecResult
 
 		// 后处理 (CTC 解码)
 		resultText, resultScore = e.postprocessRecOutput(recOutputData, recOutputShape)
-		if resultText != "" && resultScore > 0.6 {
+		err = recInputTensor.Destroy()
+		if err != nil {
+			return RecResult{}, fmt.Errorf("销毁 rec input tensor 失败: %w", err)
+		}
+		err = recOutputTensor.Destroy()
+		if err != nil {
+			return RecResult{}, fmt.Errorf("销毁 rec output tensor 失败: %w", err)
+		}
+		if resultText != "" && resultScore >= 0.6 || i == 3 {
 			break
 		} else {
 			// 旋转90度
@@ -270,15 +333,25 @@ func (e *DzPaddleOcrEngine) RunOCR(img image.Image) ([]RecResult, error) {
 		errs = append(errs, err)
 		e.recMutex.Unlock()
 	}
-
+	// 并发执行识别
+	//recSession, err := ort.NewDynamicAdvancedSession(
+	//	e.recPath,
+	//	[]string{"x"},            // 输入节点名
+	//	[]string{"fetch_name_0"}, // 输出节点名
+	//	e.options,
+	//)
+	//if err != nil {
+	//	return nil, fmt.Errorf("创建 rec session 失败: %w", err)
+	//}
+	//defer recSession.Destroy()
 	for i, box := range finalBoxes {
 		// 为每个 box 启动一个 goroutine
 		go func(i int, box [4]int) {
 			defer wg.Done()
-			result, err := e.RunRecognize(img, box)
+			result, err := e.RunRecognize(img, box, e.recSession)
 			if err != nil {
 				handlerError(fmt.Errorf("识别框 (box: %v) 错误: %w", box, err))
-				return
+				//return
 			}
 			results[i] = result
 		}(i, box)
@@ -300,44 +373,7 @@ func (e *DzPaddleOcrEngine) RunOCRByFile(imgFile string) ([]RecResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("加载图像失败: %w", err)
 	}
-	// 文字区域检测
-	finalBoxes, err := e.RunDetect(img)
-	if err != nil {
-		return nil, err
-	}
-
-	// 文字识别
-	var wg sync.WaitGroup
-	wg.Add(len(finalBoxes))
-	results := make([]RecResult, len(finalBoxes))
-
-	var errs []error
-	handlerError := func(err error) {
-		e.recMutex.Lock()
-		errs = append(errs, err)
-		e.recMutex.Unlock()
-	}
-
-	for i, box := range finalBoxes {
-		// 为每个 box 启动一个 goroutine
-		go func(i int, box [4]int) {
-			defer wg.Done()
-			result, err := e.RunRecognize(img, box)
-			if err != nil {
-				handlerError(fmt.Errorf("识别框 (box: %v) 错误: %w", box, err))
-				return
-			}
-			results[i] = result
-		}(i, box)
-	}
-
-	wg.Wait()
-
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("识别错误: %v", errs)
-	}
-
-	return results, nil
+	return e.RunOCR(img)
 }
 
 // Destroy 释放所有 C++ ONNX 资源
@@ -380,8 +416,8 @@ func (e *DzPaddleOcrEngine) preprocessDetImage(img image.Image) ([]float32, []in
 	dstImg := image.NewRGBA(dstRect)
 	draw.CatmullRom.Scale(dstImg, dstRect, img, origBounds, draw.Over, nil)
 
-	mean := []float32{0.485, 0.456, 0.406}
-	std := []float32{0.229, 0.224, 0.225}
+	//mean := []float32{0.485, 0.456, 0.406}
+	//std := []float32{0.229, 0.224, 0.225}
 
 	shape := []int64{1, 3, int64(newHeight), int64(newWidth)}
 	inputData := make([]float32, 1*3*newHeight*newWidth)
@@ -393,13 +429,13 @@ func (e *DzPaddleOcrEngine) preprocessDetImage(img image.Image) ([]float32, []in
 			gNorm := float32(g>>8) / 255.0
 			bNorm := float32(b>>8) / 255.0
 
-			rFinal := (rNorm - mean[0]) / std[0]
-			gFinal := (gNorm - mean[1]) / std[1]
-			bFinal := (bNorm - mean[2]) / std[2]
+			//rFinal := (rNorm - mean[2]) / std[2]
+			//gFinal := (gNorm - mean[1]) / std[1]
+			//bFinal := (bNorm - mean[0]) / std[0]
 
-			inputData[0*newHeight*newWidth+y*newWidth+x] = rFinal
-			inputData[1*newHeight*newWidth+y*newWidth+x] = gFinal
-			inputData[2*newHeight*newWidth+y*newWidth+x] = bFinal
+			inputData[2*newHeight*newWidth+y*newWidth+x] = rNorm
+			inputData[1*newHeight*newWidth+y*newWidth+x] = gNorm
+			inputData[0*newHeight*newWidth+y*newWidth+x] = bNorm
 		}
 	}
 	return inputData, shape
@@ -432,19 +468,19 @@ func (e *DzPaddleOcrEngine) preprocessRecImage(crop image.Image) ([]float32, []i
 
 	shape := []int64{1, 3, int64(recHeight), int64(newWidth)}
 	inputData := make([]float32, 1*3*recHeight*newWidth)
-	mean := float32(0.5)
-	std := float32(0.5)
+	//mean := float32(0.5)
+	//std := float32(0.5)
 
 	for y := 0; y < recHeight; y++ {
 		for x := 0; x < newWidth; x++ {
 			r, g, b, _ := dstImg.At(x, y).RGBA()
-			rNorm := (float32(r>>8)/255.0 - mean) / std
-			gNorm := (float32(g>>8)/255.0 - mean) / std
-			bNorm := (float32(b>>8)/255.0 - mean) / std
+			//rNorm := (float32(r>>8)/255.0 - mean) / std
+			//gNorm := (float32(g>>8)/255.0 - mean) / std
+			//bNorm := (float32(b>>8)/255.0 - mean) / std
 
-			inputData[0*recHeight*newWidth+y*newWidth+x] = rNorm
-			inputData[1*recHeight*newWidth+y*newWidth+x] = gNorm
-			inputData[2*recHeight*newWidth+y*newWidth+x] = bNorm
+			inputData[0*recHeight*newWidth+y*newWidth+x] = float32(r>>8) / 255.0
+			inputData[1*recHeight*newWidth+y*newWidth+x] = float32(g>>8) / 255.0
+			inputData[2*recHeight*newWidth+y*newWidth+x] = float32(b>>8) / 255.0
 		}
 	}
 	return inputData, shape
@@ -493,7 +529,7 @@ func (e *DzPaddleOcrEngine) postprocessRecOutput(output []float32, shape []int64
 		if idx > 0 && (idx-1) < len(dict) {
 			strBuilder.WriteString(dict[idx-1])
 		} else if idx != 0 {
-			strBuilder.WriteString("?")
+			strBuilder.WriteString(" ")
 		}
 	}
 

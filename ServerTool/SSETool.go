@@ -3,9 +3,10 @@ package ServerTool
 import (
 	"bytes"
 	"fmt"
-	"github.com/PWND0U/dztool/StringTool"
 	"net/http"
 	"regexp"
+
+	"github.com/PWND0U/dztool/StringTool"
 )
 
 var (
@@ -30,6 +31,10 @@ func NewDzServerSentEvent(data []byte, event, id, comment string, retry int) *Dz
 		Comment:          StringTool.NewDzString(comment),
 		DefaultSeparator: "\r\n",
 	}
+}
+
+func EncodeDzServerSentEvent(dSse *DzServerSentEvent) []byte {
+	return dSse.Encode()
 }
 
 func (dSse *DzServerSentEvent) Encode() []byte {

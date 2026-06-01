@@ -14,8 +14,8 @@ func TestDzJsonMapArray(t *testing.T) {
 	fmt.Println(jsonMaps)
 	for _, jsonMap := range jsonMaps {
 		fmt.Println(jsonMap.GetString("dimZhName"))
-		fmt.Println(jsonMap.GetNumber("budget"))
+		fmt.Println(jsonMap.GetInt("budget"))
 		fmt.Println(jsonMap.GetString("dimName"))
-		fmt.Println(jsonMap.GetNumber("expense"))
+		fmt.Println(jsonMap.GetInt("expense"))
 	}
 }

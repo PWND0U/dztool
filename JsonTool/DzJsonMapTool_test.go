@@ -23,9 +23,9 @@ func TestDzJsonMap(t *testing.T) {
 		fmt.Println(s.GetString("name"))
 		fmt.Println(s.GetArray("data").GetStringArray())
 	}
-	fmt.Println(dzm.GetNumber("code"))
-	fmt.Println(dzm.GetNumber("status"))
-	fmt.Println(dzm.GetNumber("ret"))
+	fmt.Println(dzm.GetInt("code"))
+	fmt.Println(dzm.GetInt("status"))
+	fmt.Println(dzm.GetInt("ret"))
 	fmt.Println(dzm.GetArray("common.month").GetStringArray()[0])
 	fmt.Println(dzm.GetArray("map.data").GetMapArray()[0].GetString("name"))
 }

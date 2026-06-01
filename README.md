@@ -24,8 +24,9 @@ go vet ./...
 |---|---|---|
 | StringTool | `DzString` `DzStrings` | 字符串链式操作 |
 | BytesTool | `DzBytes` | 字节切片链式操作 |
-| JsonTool | `DzJsonMap` `DzJsonArray` `DzJsonMapArray` | JSON 点号路径导航 |
-| StructTool | `DzStruct` | 结构体拷贝/克隆/比较/Map互转（类似 Java BeanUtils） |
+| JsonTool | `DzJsonMap` `DzJsonArray` `DzJsonMapArray` | JSON 点号路径导航 + JSON 修补 |
+| StructTool | `DzStruct` | 结构体拷贝/克隆/比较/Map互转（类似 Java BeanUtils），全面支持指针类型 |
+| DateTool | `DzDateTime` `DzLunarDate` `DzStopwatch` | Joda-Time 风格日期时间对象 + 农历 + 计时器 |
 | TimeIntervalTool | `DzTimeInterval` | 命名计时器 |
 | ServerTool | `DzServerSentEvent` | SSE 编解码与 HTTP Flush |
 | Algorithm | — | Levenshtein 编辑距离 |
@@ -182,6 +183,52 @@ for _, m := range djma {
 }
 ```
 
+### JSON 修补
+
+使用 [jsonrepair](https://github.com/kaptinlin/jsonrepair) 修复不合法的 JSON 字符串，适用于 LLM 输出、JavaScript 代码片段等场景。
+
+```go
+// 核心修补函数
+repaired, err := JsonTool.RepairJSON(`{name: John, age: 30}`)
+// repaired = `{"name": "John", "age": 30}`
+
+// 修补失败时 panic
+result := JsonTool.MustRepairJSON(`{'a':'foo'}`)
+
+// 修补并解析为 DzJsonMap（失败返回 nil）
+dzm := JsonTool.RepairToDzJsonMap(`{name: "Alice", active: True}`)
+
+// 修补并解析为原生 map
+m, err := JsonTool.RepairToJsonMap(`{name: "Bob"}`)
+
+// 修补并解析到结构体
+var p Person
+err = JsonTool.RepairToStruct(`{name: "Charlie", age: 30, active: True}`, &p)
+
+// 判断是否可修补
+JsonTool.IsRepairable(`{a:1}`)    // true
+JsonTool.IsRepairable(`{{{`)      // false
+
+// 尝试修补：返回结果 + 是否实际修补了 + 错误
+result, repaired, err := JsonTool.TryRepair(text)
+// 如果本身是合法 JSON，repaired=false，直接返回原文
+```
+
+**可修复的常见问题**：
+
+| 问题 | 输入 | 输出 |
+|------|------|------|
+| 缺少引号 | `{name: John}` | `{"name": "John"}` |
+| 单引号 | `{'a':'foo'}` | `{"a":"foo"}` |
+| 尾部逗号 | `{"a":1,}` | `{"a":1}` |
+| 缺少闭合括号 | `{"items":[1,2,3` | `{"items":[1,2,3]}` |
+| JS 注释 | `{"a":1/*c*/}` | `{"a":1}` |
+| Python 常量 | `{active: True}` | `{"active":true}` |
+| JSONP 包装 | `callback({"ok":1});` | `{"ok":1}` |
+| 截断 JSON | `{"msg":"hello` | `{"msg":"hello"}` |
+| 省略号 | `[1,2,...]` | `[1,2]` |
+| NDJSON | `{"id":1}\n{"id":2}` | `[{"id":1},{"id":2}]` |
+
 ---
 
 ## StructTool
@@ -248,6 +295,8 @@ ds.Fields()                          // ["Name", "Age"]
 ds.Field("Name")                     // "Alice"
 ds.SetField("Name", "Bob")           // 修改字段（支持链式）
 ds.SetField("Age", "30")             // cast 类型转换："30" → 30
+ds.SetField("Ptr", nil)              // 指针字段设为 nil
+ds.SetField("Inner", otherStruct)    // 指针结构体字段自动递归复制
 ds.Zero()                            // 所有字段置零值
 ```
 
@@ -348,6 +397,240 @@ StructTool.ShallowCloneStruct(src)
 
 // 比较
 StructTool.CompareStruct(a, b)                            // ([]string, error)
+```
+
+#### 指针类型支持
+
+`DzStruct` 全面支持指针类型字段，包括指针结构体、双重指针、指针匿名嵌入等：
+
+```go
+type Inner struct { Name string; ID int }
+type WithPtr struct {
+    Name  string
+    Inner *Inner     // 指针结构体字段
+}
+
+// SetField 支持多种赋值方式
+ds := StructTool.NewDzStruct(WithPtr{})
+ds.SetField("Inner", &Inner{Name: "test", ID: 1})  // 传指针
+ds.SetField("Inner", Inner{Name: "test", ID: 2})   // 传值（自动创建指针）
+ds.SetField("Inner", nil)                           // 设为 nil
+
+// ToMap / FromMap 支持指针结构体
+m := ds.ToMap()          // map[Name: Inner:map[Name:test ID:1]]
+ds2.FromMap(map[string]interface{}{
+    "Inner": map[string]interface{}{"Name": "from-map", "ID": 3},
+})
+ds2.FromMap(map[string]interface{}{"Inner": nil})  // 指针设为 nil
+
+// CopyFrom / MergeFrom 支持不同类型的指针结构体（递归匹配字段名）
+type InnerDTO struct { Name string `json:"name"`; ID int `json:"id"` }
+ds.CopyFrom(WithPtrDTO{Inner: &InnerDTO{Name: "cross", ID: 5}})
+
+// 深克隆正确复制指针结构体（修改克隆体不影响原始）
+cloned := ds.DeepClone()
+
+// 往返一致：ToMap → FromMap → EqualTo 原始
+```
+
+---
+
+## DateTool
+
+```go
+import "github.com/PWND0U/dztool/DateTool"
+```
+
+Joda-Time 风格的日期时间操作库，提供三大模块：
+
+- **DzDateTime** — 不可变链式日期时间对象
+- **DzLunarDate** — 农历日期（天干地支、生肖、公历农历互转）
+- **DzStopwatch** — 代码执行计时器
+
+### DzDateTime
+
+值类型，所有链式方法返回新实例，天然协程安全。内嵌 `err` 字段支持链式错误短路。
+
+```go
+// ============ 构造 ============
+dt := DateTool.Now()                                        // 当前时间
+dt = DateTool.DzDate(2024, 6, 15)                          // 仅日期
+dt = DateTool.DzDateTimeOf(2024, 6, 15, 10, 30, 0)        // 日期+时间
+dt = DateTool.Parse("2006-01-02", "2024-06-15")            // 解析字符串
+dt = DateTool.FromTimestamp(1718439045)                     // Unix 时间戳
+dt = DateTool.FromTimestampMilli(1718439045000)             // 毫秒时间戳
+
+// ============ 链式 Setter（返回新值，不修改原对象）============
+dt.WithYear(2020).WithMonth(1).WithDay(1).WithHour(12)
+
+// ============ 链式算术 ============
+dt.AddYears(1).AddMonths(3).AddDays(10)
+dt.SubHours(5).SubMinutes(30).SubSeconds(15)
+dt.AddDuration(2 * time.Hour)
+
+// ============ 边界方法 ============
+dt.StartOfDay()     // 当天 00:00:00
+dt.EndOfDay()       // 当天 23:59:59.999999999
+dt.StartOfMonth()   // 当月1日 00:00:00
+dt.EndOfMonth()     // 当月最后一天 23:59:59
+dt.StartOfYear()    // 当年1月1日
+dt.EndOfYear()      // 当年12月31日 23:59:59
+dt.StartOfWeek()    // 本周一 00:00:00
+dt.EndOfWeek()      // 本周日 23:59:59
+
+// ============ 比较 ============
+dt.IsBefore(other)      // bool
+dt.IsAfter(other)       // bool
+dt.IsEqual(other)       // bool
+dt.IsBetween(start, end) // bool（包含边界）
+dt.IsToday()            // bool
+dt.IsLeapYear()         // bool
+dt.IsWeekend()          // bool
+dt.IsSameDay(other)     // bool
+
+// ============ 差量 ============
+dt.DiffInYears(other)    // int
+dt.DiffInMonths(other)   // int
+dt.DiffInDays(other)     // int
+dt.DiffInHours(other)    // float64
+
+// ============ 格式化 ============
+dt.Format("2006-01-02 15:04:05")
+dt.ToDateString()           // "2024-06-15"
+dt.ToDateTimeString()       // "2024-06-15 10:30:00"
+dt.ToRfc3339String()        // RFC3339 格式
+
+// ============ 时区 ============
+dt.UTC()                    // UTC
+dt.ToTimezone("Asia/Shanghai")
+
+// ============ Getter ============
+dt.Year(), dt.Month(), dt.Day(), dt.Hour(), dt.Minute(), dt.Second()
+dt.Timestamp(), dt.TimestampMilli(), dt.DaysInMonth(), dt.DaysInYear()
+
+// ============ 错误检查 ============
+dt.Err()        // error（链式调用中累积）
+dt.IsValid()    // bool
+
+// ============ 转换 ============
+dt.ToTime()     // time.Time
+dt.ToLunar()    // DzLunarDate（公历转农历）
+```
+
+#### 静态工具函数
+
+```go
+DateTool.IsLeapYear(2024)                    // true
+DateTool.DaysInMonth(2024, 2)                // 29
+DateTool.DaysBetween(t1, t2)                 // int
+DateTool.BeginOfDay(t)                       // time.Time
+DateTool.EndOfMonth(t)                       // time.Time
+DateTool.FormatSafe(t, "2006-01-02")         // panic-free 格式化
+```
+
+#### DzDateFormatter — 协程安全格式化器
+
+```go
+f := DateTool.NewDzDateFormatter("2006-01-02 15:04:05")
+f.Format(time.Now())                  // string
+f.Parse("2024-06-15 10:30:00")        // (time.Time, error)
+f.FormatDzDateTime(dt)                // string
+```
+
+### DzLunarDate
+
+农历日期封装，覆盖 1900-2100 年，支持公历农历互转、天干地支、生肖、中文命名。
+
+```go
+// ============ 构造 ============
+lunar := DateTool.NewDzLunarDate(2024, 6, 15)             // 农历日期
+lunar = DateTool.NewDzLunarDate(2023, 2, 15, true)        // 闰月
+lunar = DateTool.LunarFromSolar(dt)                        // 公历转农历
+
+// ============ 公历↔农历互转 ============
+solar := lunar.ToSolar()          // DzDateTime（农历转公历）
+lunar := dt.ToLunar()             // DzLunarDate（公历转农历）
+
+// 往返一致
+orig := DateTool.DzDate(2024, 6, 15)
+back := DateTool.LunarFromSolar(orig).ToSolar()
+orig.ToDateString() == back.ToDateString()  // true
+
+// ============ 天干地支 / 生肖 ============
+lunar.YearGanZhi()    // "甲辰"
+lunar.MonthGanZhi()   // "庚午"
+lunar.DayGanZhi()     // "丙寅"
+lunar.Zodiac()        // "龙"
+
+// ============ 中文命名 ============
+lunar.YearName()      // "甲辰年"
+lunar.MonthName()     // "六月" / "闰二月"
+lunar.DayName()       // "十五" / "初一" / "三十"
+lunar.String()        // "甲辰年六月十五"
+
+// ============ 格式化（占位符）============
+lunar.Format("YYYY年MM月DD日")       // "2024年06月15日"
+lunar.Format("GZ年ZODIAC")           // "甲辰年龙"
+lunar.Format("MNAMEDNAME")            // "六月十五"
+
+// ============ 信息查询 ============
+lunar.LeapMonth()     // 该年闰月月份（0=无）
+lunar.DaysInMonth()   // 当月天数
+lunar.DaysInYear()    // 全年天数
+
+// ============ 比较 ============
+lunar.IsBefore(other)
+lunar.IsAfter(other)
+lunar.IsEqual(other)
+```
+
+#### 静态工具函数
+
+```go
+DateTool.SolarToLunar(2024, 6, 15)            // (年,月,日,是否闰月)
+DateTool.LunarToSolar(2024, 1, 1, false)      // (年,月,日)
+DateTool.LeapMonthOfYear(2023)                 // 2（闰二月）
+DateTool.GanZhiYear(2024)                      // "甲辰"
+DateTool.ZodiacOfYear(2024)                    // "龙"
+```
+
+### DzStopwatch
+
+代码执行计时器，支持暂停/继续累积，提供多种时间单位。
+
+```go
+sw := DateTool.NewDzStopwatch()    // 创建并自动启动
+
+// 链式控制
+sw.Stop()      // 暂停
+sw.Start()     // 继续（不丢失已累积时间）
+sw.Reset()     // 清零并停止
+sw.Restart()   // 清零并重新启动
+
+// 读取已用时间
+sw.Elapsed()           // time.Duration
+sw.ElapsedMs()         // int64（毫秒）
+sw.ElapsedSeconds()    // float64（秒）
+sw.ElapsedMinutes()    // float64（分钟）
+sw.ElapsedHours()      // float64（小时）
+sw.ElapsedDays()       // float64（天）
+sw.ElapsedWeeks()      // float64（周）
+sw.IsRunning()         // bool
+
+// 格式化
+sw.String()            // "1.234s"
+sw.Format("ms")        // "1234ms"
+sw.Format("sec")       // "1.234s"
+sw.Format("full")      // "00:00:01.234"
+
+// 暂停/继续累积正确
+sw := DateTool.NewDzStopwatch()
+time.Sleep(50 * time.Millisecond)
+sw.Stop()                         // 第一段 ~50ms
+time.Sleep(50 * time.Millisecond) // 等待期间不计时
+sw.Start()                        // 继续
+time.Sleep(50 * time.Millisecond)
+sw.Stop()                         // 总计 ~100ms
 ```
 
 ---
@@ -523,8 +806,10 @@ resultImg := dzOcr.DrawBoxes(img, boxes, nil)  // nil = 红色
 
 | 依赖 | 版本 | 用途 |
 |---|---|---|
+| `bytedance/sonic` | v1.15.1 | 高性能 JSON 序列化/反序列化（替代标准库 `encoding/json`） |
 | `golang-jwt/jwt/v5` | v5.3.1 | JWT 签发与验证 |
 | `spf13/cast` | v1.10.0 | 类型转换（JsonTool / StructTool） |
+| `kaptinlin/jsonrepair` | v0.4.5 | JSON 字符串修补（修复不合法 JSON） |
 | `yalue/onnxruntime_go` | v1.28.0 | ONNX Runtime Go 绑定（OCR 推理） |
 | `up-zero/gotool` | v0.0.0-20260402 | 图像裁剪/旋转/绘制（OCR 后处理） |
 | `golang.org/x/image` | v0.39.0 | 扩展图像处理 |

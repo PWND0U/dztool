@@ -3,6 +3,7 @@ package IOTool
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -208,7 +209,8 @@ func (w *DzWatcher) handleEvent(event fsnotify.Event) {
 	isDir := isDirPath(p)
 
 	if eventType == WatchEventCreate && isDir {
-		w.fw.Add(p)
+		depth := w.pathDepth(p)
+		w.registerRecursive(p, depth)
 	}
 
 	w.pendingMu.Lock()
@@ -327,6 +329,28 @@ func mergeEventType(old, new WatchEventType) WatchEventType {
 		return WatchEventWrite
 	}
 	return new
+}
+
+func (w *DzWatcher) pathDepth(p string) int {
+	for _, root := range w.paths {
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			continue
+		}
+		if rel == "." {
+			return 0
+		}
+		if !strings.HasPrefix(rel, "..") {
+			count := 0
+			for _, c := range rel {
+				if c == os.PathSeparator {
+					count++
+				}
+			}
+			return count + 1
+		}
+	}
+	return 0
 }
 
 

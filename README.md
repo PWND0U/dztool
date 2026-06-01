@@ -1,6 +1,6 @@
 # dztool
 
-一个 Go 工具库，提供字符串、字节、JSON、结构体、时间、SSE、JWT、OCR 等常用操作的链式封装类型。
+一个 Go 工具库，提供字符串、字节、JSON、结构体、时间、IO、网络、SSE、JWT、OCR 等常用操作的链式封装类型。
 
 ## 安装
 
@@ -28,6 +28,8 @@ go vet ./...
 | StructTool | `DzStruct` | 结构体拷贝/克隆/比较/Map互转（类似 Java BeanUtils），全面支持指针类型 |
 | DateTool | `DzDateTime` `DzLunarDate` `DzStopwatch` | Joda-Time 风格日期时间对象 + 农历 + 计时器 |
 | TimeIntervalTool | `DzTimeInterval` | 命名计时器 |
+| IOTool | `DzFastBuffer` `DzWatcher` | 流操作、文件读写、文件类型检测、目录监听、快速缓冲、路径工具 |
+| NetTool | — | IP 转换、端口检测、网卡信息、Ping、CIDR、Cookie 解析 |
 | ServerTool | `DzServerSentEvent` | SSE 编解码与 HTTP Flush |
 | Algorithm | — | Levenshtein 编辑距离 |
 | Algorithm/DzJWT | `JWTClaims` | JWT 创建、解析与验证（HS256） |
@@ -661,6 +663,338 @@ timer.ReStart("request")          // 重置计时器
 
 ---
 
+## IOTool
+
+```go
+import "github.com/PWND0U/dztool/IOTool"
+```
+
+IO 操作工具库，涵盖流操作、文件读写、文件类型检测、目录监听、快速缓冲、路径工具六大模块。
+
+### DzStreamTool — 流操作
+
+封装 `io.Reader` / `io.Writer` 的常用操作。
+
+```go
+// 读取
+data, err := IOTool.ReadAll(reader)           // []byte
+str, err := IOTool.ReadAllString(reader)      // string
+lines, err := IOTool.ReadLines(path)          // []string（按行读取文件）
+lines, err := IOTool.ReadLinesFromReader(r)   // []string（按行读取 Reader）
+
+// 写入
+n, err := IOTool.WriteAll(writer, data)       // int, error
+n, err := IOTool.WriteString(writer, "hello")  // int, error
+
+// 流拷贝
+n, err := IOTool.Copy(dst, src)               // int64
+n, err := IOTool.CopyBuffer(dst, src, buf)    // 带缓冲区
+
+// 组合
+r := IOTool.MultiReader(r1, r2, r3)          // 合并多个 Reader
+w := IOTool.MultiWriter(w1, w2)              // 合并多个 Writer
+r = IOTool.LimitReader(r, 1024)              // 限制读取字节数
+
+// 其他
+data, err := IOTool.ReadAt(readerAt, off, n) // 带偏移读取
+n, err := IOTool.Pipe(src, dst)              // 管道操作
+```
+
+### DzFileTool — 文件读写操作
+
+```go
+// 读取
+data, err := IOTool.ReadFile("test.txt")            // []byte
+str, err := IOTool.ReadFileAsString("test.txt")     // string
+lines, err := IOTool.ReadLines("test.txt")          // []string
+
+// 写入
+err := IOTool.WriteFile("out.txt", data)             // 覆盖写入
+err := IOTool.WriteFileString("out.txt", "hello")
+err := IOTool.WriteFileSync("out.txt", data)        // 写入并 Sync 刷盘
+
+// 追加
+err := IOTool.AppendFile("log.txt", data)
+err := IOTool.AppendFileString("log.txt", "line\n")
+
+// 操作
+err := IOTool.CopyFile("src.txt", "dst.txt")         // 复制（自动创建目录）
+err := IOTool.MoveFile("old.txt", "new.txt")          // 移动
+
+// 状态查询
+ok := IOTool.FileExists("test.txt")                  // bool
+ok := IOTool.DirExists("/tmp/mydir")
+size, err := IOTool.FileSize("test.txt")              // int64
+modTime, err := IOTool.LastModified("test.txt")       // time.Time
+
+// 目录
+err := IOTool.MkdirAll("/tmp/a/b/c")                 // 递归创建
+err := IOTool.Remove("/tmp/old")                      // 递归删除
+infos, err := IOTool.ListDir(".")                     // 直接子项
+err := IOTool.WalkDir(".", fn)                        // 遍历
+
+// 临时文件
+f, err := IOTool.CreateTempFile("", "dztool_*.tmp")
+dir, err := IOTool.CreateTempDir("", "dztool_*")
+```
+
+### DzFileTypeTool — 文件类型判断
+
+基于魔数(Magic Number)的文件类型检测，支持自定义注册和 30+ 内置常见类型。
+
+```go
+// 检测
+typeName, err := IOTool.DetectFileType("photo.jpg")     // "JPEG"
+typeName := IOTool.DetectFileTypeByBytes(data)          // string
+typeName, err := IOTool.DetectFileTypeFromReader(r)
+ok, err := IOTool.IsFileType("doc.pdf", "PDF")          // bool
+
+// 自定义注册
+IOTool.RegisterFileType("MyType",
+    [][]byte{[]byte{0x89, 'M', 'Y', 'F'}},  // 魔数
+    []string{".myf"},                        // 扩展名
+    0)                                        // 偏移量
+
+types := IOTool.GetRegisteredTypes()          // 所有已注册类型
+```
+
+**内置支持的文件类型**：
+
+| 类别 | 支持格式 |
+|------|---------|
+| 图片 | JPEG、PNG、GIF、BMP、WebP、ICO、TIFF |
+| 文档 | PDF、DOC/DOCX、XLS/XLSX、PPT/PPTX |
+| 压缩 | ZIP、RAR、7Z、GZIP、BZ2、TAR |
+| 音频 | MP3、WAV、FLAC、OGG、AAC |
+| 视频 | MP4、AVI、MKV、MOV、WMV |
+| 可执行 | EXE、ELF、Mach-O |
+| 文本 | XML、HTML、JSON |
+
+### DzWatchTool — 目录/文件监听
+
+支持多级目录递归监听、延迟合并触发、多观察者模式、文件跟随。
+
+```go
+// 简洁 API — 一行代码搞定监听
+watcher, err := IOTool.Watch("./config", func(event IOTool.WatchEvent) {
+    fmt.Printf("[%s] %s (dir=%v)\n", event.Type, event.Path, event.IsDir)
+})
+
+// 完整 API
+w, _ := IOTool.NewWatcher("./logs", "./data")
+
+// 配置
+w.SetDepth(3)                                    // 监听深度（-1=无限）
+w.SetDelay(500 * time.Millisecond)                // 延迟合并时间窗口
+w.SetFilter("*.log")                             // glob 过滤
+w.SetFilterFunc(func(p string) bool {             // 自定义过滤
+    return !strings.HasSuffix(p, ".tmp")
+})
+
+// 观察者
+type MyObserver struct{}
+func (o *MyObserver) OnEvent(e IOTool.WatchEvent) {
+    log.Printf("事件: %s → %s", e.Type, e.Path)
+}
+w.AddObserver(&MyObserver{})
+
+// 生命周期
+w.Start()                                         // 开始监听
+defer w.Stop()                                    // 停止释放
+
+// 文件跟随 — 删除重建后自动重新跟随
+w.Follow("app.log", &MyObserver{})
+```
+
+**延迟合并触发**：同一文件在延迟窗口内的多次修改事件合并为一个通知，避免频繁触发回调。
+
+**多级目录**：新建子目录时自动递归注册监听，受 `SetDepth` 深度限制。
+
+**事件类型**：`Create`、`Write`、`Remove`、`Rename`、`Chmod`
+
+### DzFastBuffer — 快速缓冲
+
+基于分块存储策略的高性能缓冲区，内部维护 `[][]byte` 缓冲集，避免单一数组扩容的大块内存拷贝。
+
+```go
+buf := IOTool.NewFastBuffer()                    // 默认块大小 4096
+buf2 := IOTool.NewFastBufferWithSize(8192)       // 自定义块大小
+
+// 写入
+n := buf.Write([]byte("hello"))                  // 跨块自动扩容
+buf.WriteFrom(strings.NewReader(" world"))       // io.ReaderFrom 接口
+
+// 读取
+chunk := buf.Read(5)                              // []byte
+all := buf.ReadAll()                              // 全部数据并清空
+
+// 信息
+len := buf.Len()                                  // 未读长度
+buf.Reset()                                       // 清空保留内存
+
+// io.WriterTo 接口
+buf.WriteTo(os.Stdout)                            // 写入 Writer
+```
+
+### DzPathTool — 路径工具
+
+```go
+// 解析
+IOTool.BaseName("/path/to/file.txt")              // "file"
+IOTool.Ext("/path/to/file.txt")                   // ".txt"
+IOTool.FileName("/path/to/file.txt")              // "file.txt"
+IOTool.Parent("/path/to/file.txt")                // "/path/to"
+
+// 操作
+IOTool.Join("a", "b", "c")                       // "a/b/c"
+IOTool.Normalize(".././foo/../bar")               // 规范化路径
+IOTool.Rel("/a/b/c", "/a/b/c/d/e")               // "d/e"
+IOTool.ReplaceExt("/path/test.txt", ".md")        // "/path/test.md"
+
+// 安全
+IOTool.IsSubPath("/home/user", "/home/user/doc")  // true
+IOTool.IsSafePath("../../etc/passwd")              // false
+IOTool.IsAbs("/usr/local/bin")                    // true
+
+// 遍历
+IOTool.Depth("/a/b/c/d")                          // 4
+paths := IOTool.PathIterator("/a/b/c/d")          // ["/", "/a", "/a/b", ...]
+
+// 环境
+home, _ := IOTool.HomeDir()
+exeDir, _ := IOTool.ExecutableDir()
+hostName := IOTool.GetLocalHostName()
+pType := IOTool.PathType("/etc/passwd")            // "file" / "dir" / "not_exist"
+```
+
+---
+
+## NetTool
+
+```go
+import "github.com/PWND0U/dztool/NetTool"
+```
+
+网络工具库，参考 Hutool NetUtil 实现，涵盖 IP 转换、端口检测、网卡信息、Ping、CIDR、Cookie 解析等 39 个函数。
+
+### IP 地址转换
+
+```go
+// IPv4 ↔ uint32
+NetTool.Ipv4ToLong("192.168.1.1")                 // 3232235777
+NetTool.LongToIpv4(3232235777)                     // "192.168.1.1"
+
+// IPv6 ↔ big.Int
+bigInt, _ := NetTool.Ipv6ToBigInt("::1")           // *big.Int
+NetTool.BigIntToIpv6(bigInt)                       // "::1"
+```
+
+### 端口检测
+
+```go
+NetTool.IsValidPort(8080)                          // true
+NetTool.IsValidPort(-1)                            // false
+NetTool.IsValidPort(70000)                         // false
+
+NetTool.IsUsableLocalPort(8080)                    // 是否可用（尝试监听）
+
+port := NetTool.GetUsableLocalPort()               // 随机可用端口（1024~65535）
+port = NetTool.GetUsableLocalPortRange(20000)      // 从指定端口开始查找
+port, _ = NetTool.GetUsableLocalPortBetween(30000, 40000)
+
+ports, _ := NetTool.GetUsableLocalPorts(3, 5000, 60000) // 批量获取
+```
+
+### IP 判断与隐藏
+
+```go
+NetTool.IsInnerIP("10.0.0.1")                     // true（A 类内网）
+NetTool.IsInnerIP("172.16.0.1")                   // true（B 类内网）
+NetTool.IsInnerIP("192.168.1.1")                  // true（C 类内网）
+NetTool.IsInnerIP("127.0.0.1")                    // true（回环）
+NetTool.IsInnerIP("8.8.8.8")                      // false
+
+NetTool.IsInRange("192.168.1.100", "192.168.1.0/24") // true
+
+NetTool.HideIpPart("192.168.1.1")                 // "192.168.1.*"
+NetTool.HideIpPartFromLong(3232235777)             // "192.168.1.*"
+```
+
+### 网络地址构建 & DNS
+
+```go
+addr, _ := NetTool.BuildTCPAddr("example.com:8080", 9090)  // 使用 host 中端口
+addr, _ := NetTool.BuildTCPAddr("example.com", 9090)        // 使用默认端口
+addr, _ := NetTool.CreateTCPAddr("localhost", 3306)
+
+ip := NetTool.GetIpByHost("localhost")               // DNS 解析
+```
+
+### 网卡信息
+
+```go
+// 网卡
+ifaces, _ := NetTool.GetNetworkInterfaces()          // 所有网卡
+iface, _ := NetTool.GetNetworkInterface("eth0")      // 指定网卡
+
+// IP 地址
+ipv4s, _ := NetTool.LocalIpv4s()                    // 本机 IPv4 列表
+ipv6s, _ := NetTool.LocalIpv6s()                    // 本机 IPv6 列表
+ips, _ := NetTool.LocalIps()                         // 本机所有 IP
+
+ipStr := NetTool.GetLocalhostStr()                   // 第一个非回环 IP
+ip, _ := NetTool.GetLocalhost()
+
+addrs, _ := NetTool.LocalAddressList(nil)            // 过滤后的地址列表
+ipList := NetTool.ToIpList(addrs)                    // 地址→字符串
+
+// MAC
+mac, _ := NetTool.GetLocalMacAddress()               // 本机 MAC（如 "AA-BB-CC-DD-EE-FF"）
+mac, _ := NetTool.GetMacAddress(iface)
+mac, _ := NetTool.GetMacAddressWithSeparator(iface, ":")  // 自定义分隔符
+
+// 主机名
+name := NetTool.GetLocalHostName()
+```
+
+### Ping & 远程端口
+
+```go
+NetTool.Ping("127.0.0.1")                           // 默认 3 秒超时
+NetTool.PingWithTimeout("8.8.8.8", 1000)             // 指定超时（毫秒）
+
+NetTool.IsOpen("github.com", 443, 3*time.Second)     // 远程端口是否开启
+```
+
+### Cookie & URL & IDN
+
+```go
+cookies := NetTool.ParseCookies("session=abc123; lang=zh-CN")  // []*http.Cookie
+
+url := NetTool.ToAbsoluteUrl("https://example.com/base/", "../page.html")
+// "https://example.com/page.html"
+
+punycode, _ := NetTool.IdnToASCII("中文.com")          // "xn--fiq228c.com"
+```
+
+### 反向代理 & 工具函数
+
+```go
+// 从多级反向代理提取真实 IP
+ip := NetTool.GetMultistageReverseProxyIp("unknown, 10.0.0.1, 192.168.1.1")
+// "10.0.0.1"（第一个非 unknown 的 IP）
+
+NetTool.IsUnknown("")                                 // true
+NetTool.IsUnknown("unknown")                          // true
+NetTool.IsUnknown("NULL")                             // true
+NetTool.IsUnknown("192.168.1.1")                      // false
+
+// Socket 发送
+NetTool.NetCat("example.com", 80, []byte("GET / HTTP/1.0\r\n\r\n"))
+```
+
+---
+
 ## ServerTool
 
 ```go
@@ -814,6 +1148,8 @@ resultImg := dzOcr.DrawBoxes(img, boxes, nil)  // nil = 红色
 | `up-zero/gotool` | v0.0.0-20260402 | 图像裁剪/旋转/绘制（OCR 后处理） |
 | `golang.org/x/image` | v0.39.0 | 扩展图像处理 |
 | `golang.org/x/text` | v0.36.0 | 大小写转换 |
+| `fsnotify/fsnotify` | v1.8.0 | 跨平台文件系统监听（IOTool 目录监听） |
+| `golang.org/x/net` | v0.39.0 | IDN 域名 Punycode 转换（NetTool） |
 
 ## 许可证
 

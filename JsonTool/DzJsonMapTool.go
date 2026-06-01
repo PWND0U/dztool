@@ -1,7 +1,7 @@
 package JsonTool
 
 import (
-	"encoding/json"
+	"github.com/bytedance/sonic"
 	"github.com/PWND0U/dztool/StringTool"
 	"github.com/spf13/cast"
 	"maps"
@@ -12,7 +12,7 @@ type DzJsonMap map[string]interface{}
 
 func NewDzJsonMap(jsonData []byte) DzJsonMap {
 	djm := make(DzJsonMap)
-	err := json.Unmarshal(jsonData, &djm)
+	err := sonic.Unmarshal(jsonData, &djm)
 	if err != nil {
 		//log.Fatal(err)
 		return nil

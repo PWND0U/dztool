@@ -1,12 +1,12 @@
 package StructTool
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 
+	"github.com/bytedance/sonic"
 	"github.com/spf13/cast"
 )
 
@@ -474,13 +474,13 @@ func (d *DzStruct) DeepClone() *DzStruct {
 	if d.err != nil {
 		return d
 	}
-	data, err := json.Marshal(d.data)
+	data, err := sonic.Marshal(d.data)
 	if err != nil {
 		return &DzStruct{err: fmt.Errorf("StructTool: DeepClone marshal: %w", err)}
 	}
 	srcType := reflect.TypeOf(d.data)
 	target := reflect.New(srcType).Interface()
-	if err := json.Unmarshal(data, target); err != nil {
+	if err := sonic.Unmarshal(data, target); err != nil {
 		return &DzStruct{err: fmt.Errorf("StructTool: DeepClone unmarshal: %w", err)}
 	}
 	return &DzStruct{data: reflect.ValueOf(target).Elem().Interface()}
@@ -947,12 +947,12 @@ func DeepCloneStruct(src interface{}) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(val.Interface())
+	data, err := sonic.Marshal(val.Interface())
 	if err != nil {
 		return nil, fmt.Errorf("StructTool: DeepCloneStruct marshal: %w", err)
 	}
 	target := reflect.New(val.Type()).Interface()
-	if err := json.Unmarshal(data, target); err != nil {
+	if err := sonic.Unmarshal(data, target); err != nil {
 		return nil, fmt.Errorf("StructTool: DeepCloneStruct unmarshal: %w", err)
 	}
 	return reflect.ValueOf(target).Elem().Interface(), nil

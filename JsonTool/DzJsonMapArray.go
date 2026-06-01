@@ -1,14 +1,14 @@
 package JsonTool
 
 import (
-	"encoding/json"
+	"github.com/bytedance/sonic"
 )
 
 type DzJsonMapArray []DzJsonMap
 
 func NewDzJsonMapArray(jsonData []byte) DzJsonMapArray {
 	djm := make(DzJsonMapArray, 0)
-	err := json.Unmarshal(jsonData, &djm)
+	err := sonic.Unmarshal(jsonData, &djm)
 	if err != nil {
 		//log.Fatal(err)
 		return djm

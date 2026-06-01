@@ -1,12 +1,12 @@
 package DzJWT
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -100,11 +100,11 @@ func (jc *JWTClaims) AddExtraDataByKey(key string, value interface{}) {
 
 func genJwtClaims(claims JWTClaims) (jwt.MapClaims, error) {
 	jsonMap := make(map[string]interface{})
-	marshal, err := json.Marshal(claims.RegisteredClaims)
+	marshal, err := sonic.Marshal(claims.RegisteredClaims)
 	if err != nil {
 		return nil, err
 	}
-	err = json.Unmarshal(marshal, &jsonMap)
+	err = sonic.Unmarshal(marshal, &jsonMap)
 	if err != nil {
 		return nil, err
 	}

@@ -156,34 +156,63 @@ func fieldKey(field reflect.StructField, tagName string) string {
 }
 
 // setFieldWithCast 使用 cast 库进行类型转换后设置字段值
+// 全面支持指针类型：nil 源值、cast 到指针类型、源指针解引用、跨类型指针结构体递归复制
 func setFieldWithCast(dstField reflect.Value, srcValue interface{}) bool {
 	if !dstField.CanSet() {
 		return false
 	}
+	// 1. 处理 nil 源值：仅指针字段可设为 nil
+	if srcValue == nil {
+		if dstField.Kind() == reflect.Ptr {
+			dstField.Set(reflect.Zero(dstField.Type()))
+			return true
+		}
+		return false
+	}
 	srcVal := reflect.ValueOf(srcValue)
-	// 如果类型相同且可直接赋值
+	// 2. 类型完全匹配 → 直接赋值
 	if srcVal.IsValid() && srcVal.Type() == dstField.Type() {
 		dstField.Set(srcVal)
 		return true
 	}
-	// 解引用指针
+	// 3. 目标为指针类型
+	if dstField.Kind() == reflect.Ptr {
+		// 3a. 解引用源指针链，遇到 nil 则目标设 nil
+		srcDeref := srcVal
+		for srcDeref.IsValid() && srcDeref.Kind() == reflect.Ptr {
+			if srcDeref.IsNil() {
+				dstField.Set(reflect.Zero(dstField.Type()))
+				return true
+			}
+			srcDeref = srcDeref.Elem()
+		}
+		// 3b. 源解引用后类型 == 指针指向类型 → 创建新指针
+		if srcDeref.IsValid() && srcDeref.Type() == dstField.Type().Elem() {
+			ptr := reflect.New(dstField.Type().Elem())
+			ptr.Elem().Set(srcDeref)
+			dstField.Set(ptr)
+			return true
+		}
+		// 3c. 源解引用后为结构体，目标指针指向结构体 → 递归 copyFieldsBetweenStructs
+		if srcDeref.IsValid() && srcDeref.Kind() == reflect.Struct && dstField.Type().Elem().Kind() == reflect.Struct {
+			dstField.Set(reflect.New(dstField.Type().Elem()))
+			copyFieldsBetweenStructs(dstField.Elem(), srcDeref, "", false)
+			return true
+		}
+		// 3d. 尝试 cast 转换后创建指针（如 "30" → *int）
+		if tryCastAndSetPtr(dstField, srcValue) {
+			return true
+		}
+		return false
+	}
+	// 4. 解引用源指针（目标非指针）
 	for srcVal.IsValid() && srcVal.Kind() == reflect.Ptr {
 		if srcVal.IsNil() {
 			return false
 		}
 		srcVal = srcVal.Elem()
 	}
-	// 处理目标为指针类型
-	if dstField.Kind() == reflect.Ptr {
-		if srcVal.IsValid() && srcVal.Type() == dstField.Type().Elem() {
-			ptr := reflect.New(dstField.Type().Elem())
-			ptr.Elem().Set(srcVal)
-			dstField.Set(ptr)
-			return true
-		}
-		return false
-	}
-	// 使用 cast 进行基本类型转换
+	// 5. 使用 cast 进行基本类型转换
 	switch dstField.Kind() {
 	case reflect.String:
 		dstField.SetString(cast.ToString(srcValue))
@@ -203,6 +232,28 @@ func setFieldWithCast(dstField reflect.Value, srcValue interface{}) bool {
 		}
 		return false
 	}
+	return true
+}
+
+// tryCastAndSetPtr 尝试通过 cast 转换后设置指针字段的值
+func tryCastAndSetPtr(dstField reflect.Value, srcValue interface{}) bool {
+	elemKind := dstField.Type().Elem().Kind()
+	ptr := reflect.New(dstField.Type().Elem())
+	switch elemKind {
+	case reflect.String:
+		ptr.Elem().SetString(cast.ToString(srcValue))
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		ptr.Elem().SetInt(cast.ToInt64(srcValue))
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		ptr.Elem().SetUint(cast.ToUint64(srcValue))
+	case reflect.Float32, reflect.Float64:
+		ptr.Elem().SetFloat(cast.ToFloat64(srcValue))
+	case reflect.Bool:
+		ptr.Elem().SetBool(cast.ToBool(srcValue))
+	default:
+		return false
+	}
+	dstField.Set(ptr)
 	return true
 }
 
@@ -386,7 +437,14 @@ func mapToStructRecursive(data map[string]interface{}, dstVal reflect.Value, tag
 		if !ok {
 			continue
 		}
-		// 处理嵌套结构体
+		// 处理 nil 值：仅对指针字段设置 nil，非指针字段跳过
+		if mapVal == nil {
+			if fieldVal.Kind() == reflect.Ptr {
+				fieldVal.Set(reflect.Zero(fieldVal.Type()))
+			}
+			continue
+		}
+		// 处理嵌套结构体（含指针结构体）
 		fv := fieldVal
 		for fv.Kind() == reflect.Ptr {
 			if fv.IsNil() {
@@ -408,33 +466,50 @@ func mapToStructRecursive(data map[string]interface{}, dstVal reflect.Value, tag
 
 // ==================== 同结构体操作 ====================
 
-// Clone 深拷贝当前结构体。
-// 使用 JSON 序列化/反序列化实现，能正确处理所有可 JSON 序列化的字段。
-func (d *DzStruct) Clone() *DzStruct {
+// DeepClone 深拷贝当前结构体。
+// 使用 JSON 序列化/反序列化实现，递归复制所有层级数据。
+// 修改克隆体中的切片、map、指针等引用类型字段不会影响原始结构体。
+// 适用于可 JSON 序列化的字段；不可 JSON 序列化的字段（chan, func 等）会被忽略。
+func (d *DzStruct) DeepClone() *DzStruct {
 	if d.err != nil {
 		return d
 	}
 	data, err := json.Marshal(d.data)
 	if err != nil {
-		return &DzStruct{err: fmt.Errorf("StructTool: Clone marshal: %w", err)}
+		return &DzStruct{err: fmt.Errorf("StructTool: DeepClone marshal: %w", err)}
 	}
 	srcType := reflect.TypeOf(d.data)
 	target := reflect.New(srcType).Interface()
 	if err := json.Unmarshal(data, target); err != nil {
-		return &DzStruct{err: fmt.Errorf("StructTool: Clone unmarshal: %w", err)}
+		return &DzStruct{err: fmt.Errorf("StructTool: DeepClone unmarshal: %w", err)}
 	}
 	return &DzStruct{data: reflect.ValueOf(target).Elem().Interface()}
 }
 
-// CloneReflect 使用反射进行深拷贝，不依赖 JSON 序列化。
-// 支持嵌套结构体、指针、切片、map。
-func (d *DzStruct) CloneReflect() *DzStruct {
+// DeepCloneReflect 使用反射进行深拷贝，不依赖 JSON 序列化。
+// 递归复制所有可导出字段，包括嵌套结构体、指针、切片、map。
+// 修改克隆体中的任何引用类型字段都不会影响原始结构体。
+func (d *DzStruct) DeepCloneReflect() *DzStruct {
 	if d.err != nil {
 		return d
 	}
 	val := reflect.ValueOf(d.data)
 	copied := deepCopyReflect(val)
 	return &DzStruct{data: copied.Interface()}
+}
+
+// ShallowClone 浅拷贝当前结构体。
+// 仅复制结构体顶层的值类型字段（int, string, bool 等），
+// 引用类型字段（slice, map, pointer）仍与原始结构体共享底层数据。
+// 修改克隆体的切片或 map 元素会影响原始结构体的对应字段。
+func (d *DzStruct) ShallowClone() *DzStruct {
+	if d.err != nil {
+		return d
+	}
+	val := reflect.ValueOf(d.data)
+	newVal := reflect.New(val.Type()).Elem()
+	newVal.Set(val) // reflect.Set 是浅拷贝：值类型复制值，引用类型共享底层
+	return &DzStruct{data: newVal.Interface()}
 }
 
 // Fields 返回所有可导出字段的名称列表（嵌入字段扁平化）
@@ -865,31 +940,45 @@ func mapToStructByTag(data map[string]interface{}, output interface{}, tagName s
 	return MapToStructByTag(data, output, tagName)
 }
 
-// CloneStruct 深拷贝结构体（JSON 方式）。
-func CloneStruct(src interface{}) (interface{}, error) {
+// DeepCloneStruct 深拷贝结构体（JSON 方式）。
+// 递归复制所有层级，修改克隆体不影响原始结构体。
+func DeepCloneStruct(src interface{}) (interface{}, error) {
 	val, err := resolveValue(src)
 	if err != nil {
 		return nil, err
 	}
 	data, err := json.Marshal(val.Interface())
 	if err != nil {
-		return nil, fmt.Errorf("StructTool: CloneStruct marshal: %w", err)
+		return nil, fmt.Errorf("StructTool: DeepCloneStruct marshal: %w", err)
 	}
 	target := reflect.New(val.Type()).Interface()
 	if err := json.Unmarshal(data, target); err != nil {
-		return nil, fmt.Errorf("StructTool: CloneStruct unmarshal: %w", err)
+		return nil, fmt.Errorf("StructTool: DeepCloneStruct unmarshal: %w", err)
 	}
 	return reflect.ValueOf(target).Elem().Interface(), nil
 }
 
-// CloneStructReflect 深拷贝结构体（反射方式）。
-func CloneStructReflect(src interface{}) (interface{}, error) {
+// DeepCloneStructReflect 深拷贝结构体（反射方式）。
+// 递归复制所有可导出字段，不依赖 JSON 序列化。
+func DeepCloneStructReflect(src interface{}) (interface{}, error) {
 	val, err := resolveValue(src)
 	if err != nil {
 		return nil, err
 	}
 	copied := deepCopyReflect(val)
 	return copied.Interface(), nil
+}
+
+// ShallowCloneStruct 浅拷贝结构体。
+// 仅复制值类型字段，引用类型字段（slice, map, pointer）与原始结构体共享底层数据。
+func ShallowCloneStruct(src interface{}) (interface{}, error) {
+	val, err := resolveValue(src)
+	if err != nil {
+		return nil, err
+	}
+	newVal := reflect.New(val.Type()).Elem()
+	newVal.Set(val) // 浅拷贝
+	return newVal.Interface(), nil
 }
 
 // CompareStruct 比较两个结构体，返回差异字段名列表。

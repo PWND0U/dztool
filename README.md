@@ -228,13 +228,22 @@ ds.ToIntf(&p)                       // 将值填充到 p
 #### 同结构体操作
 
 ```go
-// 深拷贝（JSON 方式，适用于可 JSON 序列化的字段）
-cloned := ds.Clone()
+// ============ 深克隆 ============
+// 递归复制所有层级数据，修改克隆体不影响原始结构体
 
-// 深拷贝（反射方式，不依赖 JSON，支持不可序列化类型）
-cloned2 := ds.CloneReflect()
+// DeepClone — JSON 方式（适用于可 JSON 序列化的字段）
+cloned := ds.DeepClone()
 
-// 字段操作
+// DeepCloneReflect — 反射方式（不依赖 JSON，支持不可序列化类型）
+cloned2 := ds.DeepCloneReflect()
+
+// ============ 浅克隆 ============
+// 仅复制值类型字段，引用类型（slice, map, pointer）与原始共享底层数据
+// 修改克隆体的切片或 map 元素会影响原始结构体
+
+shallow := ds.ShallowClone()
+
+// ============ 字段操作 ============
 ds.Fields()                          // ["Name", "Age"]
 ds.Field("Name")                     // "Alice"
 ds.SetField("Name", "Bob")           // 修改字段（支持链式）
@@ -330,9 +339,12 @@ StructTool.StructToMapByTag(src, "json")                  // (map[string]interfa
 StructTool.MapToStruct(data, &output)                     // error
 StructTool.MapToStructByTag(data, &output, "json")        // error
 
-// 克隆
-StructTool.CloneStruct(src)                               // JSON 深拷贝
-StructTool.CloneStructReflect(src)                        // 反射深拷贝
+// 深克隆（递归复制所有层级，修改克隆体不影响原始）
+StructTool.DeepCloneStruct(src)                            // JSON 方式
+StructTool.DeepCloneStructReflect(src)                     // 反射方式
+
+// 浅克隆（引用类型字段与原始共享底层数据）
+StructTool.ShallowCloneStruct(src)
 
 // 比较
 StructTool.CompareStruct(a, b)                            // ([]string, error)

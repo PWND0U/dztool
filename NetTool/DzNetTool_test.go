@@ -485,6 +485,7 @@ func TestParseCookies(t *testing.T) {
 
 func TestIdnToASCII(t *testing.T) {
 	result, err := IdnToASCII("中国.com")
+	t.Logf("IdnToASCII(\"中国.com\") = %s, 期望包含 Punycode 前缀 \"xn--\"", result)
 	if err != nil {
 		t.Fatalf("IdnToASCII(\"中国.com\") 返回错误: %v", err)
 	}

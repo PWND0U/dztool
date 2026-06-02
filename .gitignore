@@ -8,6 +8,7 @@
 *.so
 *.dylib
 .trae/
+.idea/
 
 # Test binary, built with `go test -c`
 *.test
@@ -26,3 +27,8 @@ go.work.sum
 .env
 */static
 CLAUDE.md
+/proto/
+/dist/
+/dzAi/dzOcr/dist/
+/test_box.png
+/dzAi/dzOcr/main/test_box.png
